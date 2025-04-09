@@ -1,5 +1,7 @@
 # DSL-POC: Domain-Specific Language for Mobile Feature Generation
 
+https://github.com/user-attachments/assets/ff98aef0-871e-4032-a561-f70742661e63
+
 ## Overview
 DSL-POC is an innovative project that introduces a Domain-Specific Language (DSL) for generating complete mobile features. It automates the creation of boilerplate code, enforces consistent architecture patterns, and significantly reduces development time for new features.
 
@@ -208,8 +210,20 @@ feature("Login") {
 git clone https://github.com/your-username/dsl-poc.git
 cd dsl-poc
 ```
+2. Build the dsl processor tooling:
+```bash
+cd dsl-processor
+.gradlew releaseToMobile
+```
+3. Code your dsl in mobile/definitions
+
+4. Create code from definition:
+```bash
+cd ../mobile
+.gradlew generateJourney -PjourneyName={journeyName}
+```
 
 2. Build the project:
 ```bash
-./gradlew build
+./gradlew assembleDebug
 ```
