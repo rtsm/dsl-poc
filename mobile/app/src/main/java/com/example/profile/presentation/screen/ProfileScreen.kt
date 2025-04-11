@@ -47,8 +47,9 @@ fun ProfileScreen(
             Text(text = "Hello from Profile")
             Text(text = "Current State:")
             Text(text = "isLoading: ${state.isLoading}")
-            Text(text = "userProfile: ${state.userProfile ?: "null"}")
-            Text(text = "error: ${state.error ?: "null"}")
+            Text(text = "profile: ${state.profile ?: "null"}")
+            Text(text = "accounts: ${state.accounts ?: "null"}")
+            Text(text = "notificationsEnabled: ${state.notificationsEnabled}")
         }
     }
 }

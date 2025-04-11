@@ -20,7 +20,7 @@ class ProfileViewModel(
         store.send(ProfileAction.LoadProfile)
         viewModelScope.launch {
             try {
-                repository.getUserProfile().collectLatest {
+                repository.profile().collectLatest {
                     store.send(ProfileAction.ProfileLoaded(it))
                 }
             } catch (ex: Exception) {

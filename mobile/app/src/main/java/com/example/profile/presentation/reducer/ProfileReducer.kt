@@ -20,14 +20,13 @@ class ProfileReducer : Reducer<ProfileState, ProfileAction> {
             is ProfileAction.ProfileLoaded -> state.mutateWithoutEffects {
                 state.invoke().copy(
                     isLoading = false,
-                    userProfile = action.profile
+                    profile = action.profile
                 )
             }
 
             is ProfileAction.ProfileLoadFailed -> state.mutateWithoutEffects {
                 state.invoke().copy(
-                    isLoading = false,
-                    error = action.error
+                    isLoading = false, error = action.error
                 )
             }
         }

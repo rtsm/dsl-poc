@@ -15,25 +15,42 @@ Properties:
 ### ProfileState
 Properties:
 - `isLoading`: Boolean (default: false)
-- `userProfile`: UserProfile? (nullable)
-- `error`: String? (nullable)
+- `profile`: UserProfile? (nullable)
+- `accounts`: List<Account>? (nullable)
+- `notificationsEnabled`: Boolean (default: false)
 
 ## UI Actions
 ### LoadProfile
-No properties
+Properties:
+- `profile`: UserProfile
+- `error`: String
 
 ### ProfileLoaded
 Properties:
 - `profile`: UserProfile
+- `error`: String
 
 ### ProfileLoadFailed
 Properties:
+- `profile`: UserProfile
 - `error`: String
 
-## API Endpoints
-### getUserProfile
-- Path: `/api/user/profile`
-- Response Type: `UserProfile`
+## Data Sources
+### Network Call: profile
+- Type: Network API Call
+- Path: `/api/profile`
+- Response Type: `"UserProfile"`
+
+### Local DM: "getAccounts"
+- Type: Local DM Source
+- Repository: `"AccountRepository"`
+- Method: `"getAccounts"`
+- Response Type: `"List<Account>"`
+
+### Preference: notifications_enabled
+- Type: Shared Preference
+- Key: `notifications_enabled`
+- Value Type: `"Boolean"`
 
 ## Generated Files
 The following files are generated for this feature:
@@ -60,5 +77,6 @@ The feature is accessible via the route: `profile`
 ## Dependencies
 The feature depends on:
 - Network client for API calls
+- Preference client for shared preferences
 - Dependency injection framework
 - Navigation framework

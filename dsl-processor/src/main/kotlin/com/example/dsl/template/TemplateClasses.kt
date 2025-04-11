@@ -12,11 +12,18 @@ data class {class_name}(
 object RepositoryTemplate {
     const val TEMPLATE = """package com.example.{package_name}.domain
 
-import com.example.{package_name}.domain.model.*
+{model_imports}
 import com.example.core.NetworkClient
+import com.example.core.PreferenceClient
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flow
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.inject
+import java.io.File
+import kotlin.reflect.typeOf
+import kotlin.reflect.javaType
 
 interface {repository_name} {
 {repository_methods}
@@ -24,18 +31,17 @@ interface {repository_name} {
 
 class {repository_impl_name}(
     private val networkClient: NetworkClient,
+    private val preferenceClient: PreferenceClient,
     private val gson: Gson = Gson()
-) : {repository_name} {
+) : {repository_name}, KoinComponent {
 {repository_impl_methods}
 }
 """
 }
 
 object RepositoryImplTemplate {
-    const val TEMPLATE = """    override fun {repository_method}(): Flow<{model_name}> = networkClient.request("{endpoint_path}").map { deserialize(it) }
-
-    private fun deserialize(responseBody: String): {model_name} {
-        return gson.fromJson(responseBody, {model_name}::class.java)
+    const val TEMPLATE = """    override fun {repository_method}(): Flow<{model_name}> {
+        {implementation}
     }
 """
 }
@@ -120,6 +126,7 @@ import com.example.{package_name}.domain.{repository_impl_name}
 import com.example.{package_name}.presentation.reducer.{reducer_name}
 import com.example.{package_name}.presentation.state.{state_name}
 import com.example.core.NetworkClient
+import com.example.core.PreferenceClient
 import com.toggl.komposable.extensions.createStore
 import com.toggl.komposable.scope.DispatcherProvider
 import com.toggl.komposable.scope.StoreScopeProvider
@@ -127,7 +134,7 @@ import org.koin.core.module.Module
 import org.koin.core.qualifier.named
 
 fun Module.{package_name}Dependencies() {
-    single<{repository_name}> { {repository_impl_name}(get<NetworkClient>()) }
+    single<{repository_name}> { {repository_impl_name}(get<NetworkClient>(), get<PreferenceClient>()) }
     single { {reducer_name}() }
     single(named("{package_name}")) { createStore(
             initialState = {state_name}(),

@@ -2,9 +2,16 @@ package com.example.dsl
 
 import com.example.dsl.template.*
 import java.io.File
+import java.util.*
 
-class CodeGenerator(private val feature: FeatureBuilder) {
+class CodeGenerator(private val feature: Feature) {
     private val templateProcessor = TemplateProcessor()
+    private val codeScanner = CodeScanner()
+
+    init {
+        // Initialize the code scanner
+        codeScanner.scan()
+    }
 
     fun generate() {
         generateDomainModels()
@@ -23,32 +30,171 @@ class CodeGenerator(private val feature: FeatureBuilder) {
     private fun generateDomainModels() {
         feature.domainModels.forEach { model ->
             val properties = model.properties.joinToString(",\n") { property ->
-                "    val ${property.name}: ${property.type}"
+                "    val ${property.name.removeSurrounding("\"")}: ${property.type.removeSurrounding("\"")}"
             }
 
             val content = templateProcessor
                 .addReplacement("package_name", feature.packageName)
-                .addReplacement("class_name", model.name)
+                .addReplacement("class_name", model.name.removeSurrounding("\""))
                 .addReplacement("properties", properties)
                 .process(DomainModelTemplate.TEMPLATE)
 
-            writeFile("domain/model/${model.name}.kt", content)
+            val modelName = model.name.removeSurrounding("\"")
+            writeFile("domain/model/$modelName.kt", content)
             templateProcessor.clear()
         }
     }
 
     private fun generateRepository() {
+        // Collect all response models that need imports
+        val responseModels = feature.dataSources.mapNotNull { dataSource ->
+            when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.responseModel.removeSurrounding("\"")
+                is DataSource.LocalDM -> dataSource.responseModel.removeSurrounding("\"")
+                else -> null
+            }
+        }.distinct()
+
+        // Extract base types from generic types and collect all model types
+        val allModelTypes = mutableSetOf<String>()
+        extractTypeFromGenerics(responseModels, allModelTypes)
+
+        // Get repository names from LocalDM data sources
+        val repositoryNames = feature.dataSources
+            .filterIsInstance<DataSource.LocalDM>()
+            .map { it.repository.removeSurrounding("\"") }
+            .distinct()
+
+        // Generate imports for models and repositories
+        val modelImports = mutableListOf<String>()
+        
+        // Add imports for current feature's domain models
+        feature.domainModels.forEach { model ->
+            val modelName = model.name.removeSurrounding("\"")
+            modelImports.add("import com.example.${feature.packageName}.domain.model.$modelName")
+        }
+        
+        // Add imports for models from other features
+        allModelTypes.forEach { modelType ->
+            if (!feature.domainModels.any { it.name.removeSurrounding("\"") == modelType }) {
+                val import = codeScanner.getModelImports(listOf(modelType)).firstOrNull()
+                if (import != null) {
+                    modelImports.add(import)
+                }
+            }
+        }
+        
+        // Add repository imports using repositoryPackages
+        val repositoryImports = repositoryNames.mapNotNull { repositoryName ->
+            codeScanner.findRepositoryPackage(repositoryName)?.let { packageName ->
+                "import $packageName.$repositoryName"
+            }
+        }
+        
+        // Combine all imports
+        val allImports = (modelImports + repositoryImports).distinct().joinToString("\n")
+
         // Generate repository methods
-        val repositoryMethods = feature.apiEndpoints.joinToString("\n") { endpoint ->
-            "    fun ${endpoint.name}(): Flow<${endpoint.responseModel}>"
+        val repositoryMethods = feature.dataSources.joinToString("\n") { dataSource ->
+            val methodName = when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.path.split("/").last()
+                is DataSource.Preference -> "get${dataSource.key.split("_").joinToString("") {
+                    it.replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(
+                            Locale.getDefault()
+                        ) else it.toString()
+                    }
+                }}"
+                is DataSource.LocalDM -> dataSource.method.removeSurrounding("\"")
+                is DataSource.LocalStorage -> dataSource.path.split("/").last()
+            }
+            
+            val returnType = when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.responseModel.removeSurrounding("\"")
+                is DataSource.Preference -> dataSource.type.removeSurrounding("\"")
+                is DataSource.LocalDM -> dataSource.responseModel.removeSurrounding("\"")
+                is DataSource.LocalStorage -> "ByteArray"
+            }
+            
+            "    fun $methodName(): Flow<$returnType>"
+        }
+
+        // Generate deserialize methods
+        val deserializeMethods = responseModels.joinToString("\n\n") { model ->
+            val isGeneric = model.startsWith("List<") || model.startsWith("Map<")
+            if (isGeneric) {
+                val baseType = when {
+                    model.startsWith("List<") -> model.removeSurrounding("List<", ">")
+                    model.startsWith("Map<") -> model.removeSurrounding("Map<", ">").split(",").first().trim()
+                    else -> model
+                }
+                """    @OptIn(ExperimentalStdlibApi::class)
+    private fun deserialize${baseType}List(responseBody: String): $model {
+        return gson.fromJson(responseBody, typeOf<$model>().javaType)
+    }"""
+            } else {
+                """    private fun deserialize$model(responseBody: String): $model {
+        return gson.fromJson(responseBody, $model::class.java)
+    }"""
+            }
         }
 
         // Generate repository implementation methods
-        val repositoryImplMethods = feature.apiEndpoints.joinToString("\n\n") { endpoint ->
+        val repositoryImplMethods = feature.dataSources.joinToString("\n\n") { dataSource ->
+            val methodName = when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.path.split("/").last()
+                is DataSource.Preference -> "get${dataSource.key.split("_").joinToString("") {
+                    it.replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(
+                            Locale.getDefault()
+                        ) else it.toString()
+                    }
+                }}"
+                is DataSource.LocalDM -> dataSource.method.removeSurrounding("\"")
+                is DataSource.LocalStorage -> dataSource.path.split("/").last()
+            }
+            
+            val implementation = when (dataSource) {
+                is DataSource.NetworkCall -> 
+                    "return networkClient.request(\"${dataSource.path}\").map { deserialize${dataSource.responseModel.removeSurrounding("\"")}(it) }"
+                
+                is DataSource.Preference -> {
+                    val defaultValue = when (dataSource.type.removeSurrounding("\"")) {
+                        "String" -> "\"\""
+                        "Int" -> "0"
+                        "Boolean" -> "false"
+                        "Long" -> "0L"
+                        "Float" -> "0f"
+                        else -> "null"
+                    }
+                    "return flow { emit(preferenceClient.getPreference(\"${dataSource.key}\", $defaultValue)) }"
+                }
+                
+                is DataSource.LocalDM -> 
+                    "return (inject<${dataSource.repository.removeSurrounding("\"")}>()).value.${dataSource.method.removeSurrounding("\"")}()"
+                
+                is DataSource.LocalStorage -> 
+                    """return flow {
+                val file = File("${dataSource.path}")
+                if (file.exists()) {
+                    emit(file.readBytes())
+                } else {
+                    throw IllegalStateException("File not found: ${'$'}{file.path}")
+                }
+            }"""
+            }
+            
+            val modelName = when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.responseModel.removeSurrounding("\"")
+                is DataSource.Preference -> dataSource.type.removeSurrounding("\"")
+                is DataSource.LocalDM -> dataSource.responseModel.removeSurrounding("\"")
+                is DataSource.LocalStorage -> "ByteArray"
+            }
+            
             templateProcessor
-                .addReplacement("repository_method", endpoint.name)
-                .addReplacement("model_name", endpoint.responseModel)
-                .addReplacement("endpoint_path", endpoint.path)
+                .addReplacement("repository_method", methodName)
+                .addReplacement("model_name", modelName)
+                .addReplacement("implementation", implementation)
                 .process(RepositoryImplTemplate.TEMPLATE)
         }
 
@@ -57,7 +203,8 @@ class CodeGenerator(private val feature: FeatureBuilder) {
             .addReplacement("repository_name", "${feature.featureName}Repository")
             .addReplacement("repository_impl_name", "${feature.featureName}RepositoryImpl")
             .addReplacement("repository_methods", repositoryMethods)
-            .addReplacement("repository_impl_methods", repositoryImplMethods)
+            .addReplacement("repository_impl_methods", "$repositoryImplMethods\n\n$deserializeMethods")
+            .addReplacement("model_imports", allImports)
             .process(RepositoryTemplate.TEMPLATE)
 
         val path = "domain/${feature.featureName}Repository.kt"
@@ -71,8 +218,30 @@ class CodeGenerator(private val feature: FeatureBuilder) {
         templateProcessor.clear()
     }
 
+    private fun extractTypeFromGenerics(
+        responseModels: List<String>,
+        allModelTypes: MutableSet<String>
+    ) {
+        responseModels.map{ it.removeSuffix("?")}.forEach { model ->
+            when {
+                model.startsWith("List<") -> {
+                    val baseType = model.removeSurrounding("List<", ">")
+                    allModelTypes.add(baseType)
+                }
+
+                model.startsWith("Map<") -> {
+                    val types = model.removeSurrounding("Map<", ">").split(",")
+                    types.forEach { allModelTypes.add(it.trim()) }
+                }
+
+                else -> allModelTypes.add(model)
+            }
+        }
+    }
+
     private fun generateUIState() {
-        val properties = feature.uiStates.flatMap { it.properties }
+        // Add error field to properties
+        val properties = (feature.uiStates.flatMap { it.properties } + Property("error", "String?"))
             .joinToString(",\n") { property ->
                 val defaultValue = when {
                     property.type.endsWith("?") -> " = null"
@@ -90,16 +259,37 @@ class CodeGenerator(private val feature: FeatureBuilder) {
             }
             .distinct()
 
-        // Generate imports for domain models
-        val domainModelImports = domainModelTypes.joinToString("\n") { type ->
+        // Generate imports for current feature's domain models
+        val currentFeatureImports = domainModelTypes.joinToString("\n") { type ->
             "import com.example.${feature.packageName}.domain.model.${type.removeSuffix("?")}"
         }
+
+        // Collect model types from other features
+        val otherFeatureModelTypes = feature.uiStates.flatMap { it.properties }
+            .map { it.type }
+            .filter { type -> 
+                !feature.domainModels.any { it.name == type.removeSuffix("?") }
+            }
+            .distinct()
+
+        val allModelTypes = mutableSetOf<String>()
+        extractTypeFromGenerics(otherFeatureModelTypes, allModelTypes)
+
+        // Generate imports for models from other features using modelPackages
+        val otherFeatureImports = codeScanner.getModelImports(allModelTypes.toList()).joinToString("\n")
+
+        // Combine all imports
+        val allImports = if (otherFeatureImports.isNotEmpty()) {
+            "$currentFeatureImports\n$otherFeatureImports"
+        } else {
+            currentFeatureImports
+            }
 
         val content = templateProcessor
             .addReplacement("package_name", feature.packageName)
             .addReplacement("state_name", "${feature.featureName}State")
             .addReplacement("properties", properties)
-            .addReplacement("domain_model_imports", domainModelImports)
+            .addReplacement("domain_model_imports", allImports)
             .process(UIStateTemplate.TEMPLATE)
 
         writeFile("presentation/state/${feature.featureName}State.kt", content)
@@ -108,14 +298,34 @@ class CodeGenerator(private val feature: FeatureBuilder) {
 
     private fun generateUIActions() {
         val actionClasses = feature.uiActions.joinToString("\n\n") { action ->
-            if (action.properties.isEmpty()) {
+            val properties = when {
+                action.name.startsWith("Load") && !action.name.endsWith("Loaded") && !action.name.endsWith("Failed") -> {
+                    // LoadProfile should be a data object with no properties
+                    ""
+                }
+                action.name.endsWith("Loaded") -> {
+                    // ProfileLoaded should only have the loaded data
+                    action.properties.filter { it.name != "error" }
+                        .joinToString(",\n") { property ->
+                            "        val ${property.name}: ${property.type}"
+                        }
+                }
+                action.name.endsWith("Failed") -> {
+                    // ProfileLoadFailed should only have error
+                    "        val error: String"
+                }
+                else -> {
+                    action.properties.joinToString(",\n") { property ->
+                "        val ${property.name}: ${property.type}"
+                    }
+                }
+            }
+
+            if (properties.isEmpty()) {
                 """
     data object ${action.name} : ${feature.featureName}Action()"""
             } else {
-                val properties = action.properties.joinToString(",\n") { property ->
-                    "        val ${property.name}: ${property.type}"
-                }
-                """
+            """
     data class ${action.name}(
 $properties
     ) : ${feature.featureName}Action()"""
@@ -149,29 +359,22 @@ $properties
     private fun generateReducer() {
         val reducerCases = feature.uiActions.joinToString("\n") { action ->
             val stateUpdates = when {
-                action.name.startsWith("Load") -> "isLoading = true"
-                action.name.endsWith("Loaded") || action.name.endsWith("Failed") -> "isLoading = false"
+                action.name.startsWith("Load") && !action.name.endsWith("Loaded") && !action.name.endsWith("Failed") -> "isLoading = true"
+                action.name.endsWith("Loaded") -> "isLoading = false"
+                action.name.endsWith("Failed") -> "isLoading = false, error = action.error"
                 else -> ""
             }
             
             // Match action properties to state properties by type
-            val propertyMappings = action.properties.map { actionProperty ->
-                // Find a state property with the same type
-                val matchingStateProperty = feature.uiStates.flatMap { it.properties }
-                    .find { stateProperty -> 
-                        // Remove nullable suffix for comparison
-                        val actionType = actionProperty.type.removeSuffix("?")
-                        val stateType = stateProperty.type.removeSuffix("?")
-                        actionType == stateType
-                    }
-                
-                // If found, map the action property to the state property
-                if (matchingStateProperty != null) {
-                    "${matchingStateProperty.name} = action.${actionProperty.name}"
-                } else {
-                    // If no match found, just use the action property name
-                    "${actionProperty.name} = action.${actionProperty.name}"
+            val propertyMappings = when {
+                action.name.endsWith("Loaded") -> {
+                    // For Loaded actions, only map the loaded data and exclude error
+                    action.properties.filter { it.name != "error" }
+                        .map { actionProperty ->
+                            "${actionProperty.name} = action.${actionProperty.name}"
+                        }
                 }
+                else -> emptyList() // For other actions, don't map properties
             }.joinToString(",\n                    ")
             
             val allProperties = if (stateUpdates.isNotEmpty()) {
@@ -249,8 +452,21 @@ $properties
             }
 
         // Find the first API endpoint to use for repository method
-        val firstEndpoint = feature.apiEndpoints.firstOrNull()
-        val repositoryMethod = firstEndpoint?.name ?: ""
+        val firstEndpoint = feature.dataSources.firstOrNull()
+        val repositoryMethod = firstEndpoint?.let { dataSource ->
+            when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.path.split("/").last()
+                is DataSource.Preference -> "get${
+                    dataSource.key.replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(
+                            Locale.getDefault()
+                        ) else it.toString()
+                    }
+                }"
+                is DataSource.LocalDM -> dataSource.method
+                is DataSource.LocalStorage -> dataSource.path.split("/").last()
+            }
+        } ?: ""
         val actionLoaded = feature.uiActions.find { it.name.endsWith("Loaded") }?.name ?: ""
         val actionFailed = feature.uiActions.find { it.name.endsWith("Failed") }?.name ?: ""
         val actionLoading = feature.uiActions.find { it.name.startsWith("Load") }?.name ?: ""
@@ -283,8 +499,21 @@ $properties
 
     private fun generateViewModel() {
         // Find the first API endpoint to use for repository method
-        val firstEndpoint = feature.apiEndpoints.firstOrNull()
-        val repositoryMethod = firstEndpoint?.name ?: ""
+        val firstEndpoint = feature.dataSources.firstOrNull()
+        val repositoryMethod = firstEndpoint?.let { dataSource ->
+            when (dataSource) {
+                is DataSource.NetworkCall -> dataSource.path.split("/").last()
+                is DataSource.Preference -> "get${
+                    dataSource.key.replaceFirstChar {
+                        if (it.isLowerCase()) it.titlecase(
+                            Locale.getDefault()
+                        ) else it.toString()
+                    }
+                }"
+                is DataSource.LocalDM -> dataSource.method
+                is DataSource.LocalStorage -> dataSource.path.split("/").last()
+            }
+        } ?: ""
         val actionLoaded = feature.uiActions.find { it.name.endsWith("Loaded") }?.name ?: ""
         val actionFailed = feature.uiActions.find { it.name.endsWith("Failed") }?.name ?: ""
         val actionLoading = feature.uiActions.find { it.name.startsWith("Load") }?.name ?: ""
@@ -377,13 +606,38 @@ $properties
                 appendLine()
             }
             
-            // API Endpoints
-            appendLine("## API Endpoints")
-            feature.apiEndpoints.forEach { endpoint ->
-                appendLine("### ${endpoint.name}")
-                appendLine("- Path: `${endpoint.path}`")
-                if (endpoint.responseModel != null) {
-                    appendLine("- Response Type: `${endpoint.responseModel}`")
+            // Data Sources
+            appendLine("## Data Sources")
+            feature.dataSources.forEach { dataSource ->
+                when (dataSource) {
+                    is DataSource.NetworkCall -> {
+                        appendLine("### Network Call: ${dataSource.path.split("/").last()}")
+                        appendLine("- Type: Network API Call")
+                        appendLine("- Path: `${dataSource.path}`")
+                        appendLine("- Response Type: `${dataSource.responseModel}`")
+                        if (dataSource.transformations.isNotEmpty()) {
+                            appendLine("- Transformations: ${dataSource.transformations.joinToString(", ")}")
+                        }
+                    }
+                    is DataSource.Preference -> {
+                        appendLine("### Preference: ${dataSource.key}")
+                        appendLine("- Type: Shared Preference")
+                        appendLine("- Key: `${dataSource.key}`")
+                        appendLine("- Value Type: `${dataSource.type}`")
+                    }
+                    is DataSource.LocalDM -> {
+                        appendLine("### Local DM: ${dataSource.method}")
+                        appendLine("- Type: Local DM Source")
+                        appendLine("- Repository: `${dataSource.repository}`")
+                        appendLine("- Method: `${dataSource.method}`")
+                        appendLine("- Response Type: `${dataSource.responseModel}`")
+                    }
+                    is DataSource.LocalStorage -> {
+                        appendLine("### Local Storage: ${dataSource.path.split("/").last()}")
+                        appendLine("- Type: File Storage")
+                        appendLine("- Path: `${dataSource.path}`")
+                        appendLine("- Response Type: `ByteArray`")
+                    }
                 }
                 appendLine()
             }
@@ -420,6 +674,7 @@ $properties
             appendLine("## Dependencies")
             appendLine("The feature depends on:")
             appendLine("- Network client for API calls")
+            appendLine("- Preference client for shared preferences")
             appendLine("- Dependency injection framework")
             appendLine("- Navigation framework")
         }
@@ -431,7 +686,6 @@ $properties
         } else {
             writeFile(path, content)
         }
-        writeFile(path, content)
         templateProcessor.clear()
     }
 

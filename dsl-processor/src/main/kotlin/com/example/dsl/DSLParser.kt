@@ -1,112 +1,115 @@
 package com.example.dsl
 
-import com.example.dsl.model.*
 import java.io.File
+import java.util.*
 
 class DSLParser {
-    fun parse(file: File): FeatureBuilder {
+    private val featureBuilder = FeatureBuilder()
+    private val domainModelBuilder = DomainModelBuilder()
+    private val uiStateBuilder = UIStateBuilder()
+    private val uiActionBuilder = UIActionBuilder()
+    private val dataSourceBuilder = DataSourceBuilder()
+
+    fun parse(file: File): Feature {
         val content = file.readText()
-        val featureBuilder = FeatureBuilder()
-        
-        // Simple parsing logic - in a real implementation, you would use a proper parser
         val lines = content.lines()
-        var currentBlock: String? = null
-        var currentModel: DomainModelBuilder? = null
-        var currentEndpoint: ApiEndpointBuilder? = null
-        var currentState: UIStateBuilder? = null
-        var currentAction: UIActionBuilder? = null
-        
+        var currentBuilder: Any? = null
+
         for (line in lines) {
             val trimmedLine = line.trim()
-            
+            if (trimmedLine.isEmpty()) continue
+
             when {
-                trimmedLine.startsWith("feature {") -> {
-                    // Start of feature block
+                trimmedLine.startsWith("feature") -> {
+                    val name = trimmedLine.substringAfter("feature").trim()
+                    featureBuilder.featureName = name
+                    featureBuilder.packageName = name.lowercase(Locale.getDefault())
                 }
-                trimmedLine.startsWith("packageName =") -> {
-                    featureBuilder.packageName = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
+                trimmedLine == "domainModel {" -> currentBuilder = domainModelBuilder
+                trimmedLine == "uiState {" -> currentBuilder = uiStateBuilder
+                trimmedLine == "uiAction {" -> currentBuilder = uiActionBuilder
+                trimmedLine == "dataSources {" -> currentBuilder = dataSourceBuilder
+                trimmedLine == "}" -> {
+                    when (currentBuilder) {
+                        is DomainModelBuilder -> {
+                            featureBuilder.domainModels.add(domainModelBuilder.build())
+                            currentBuilder = null
+                        }
+                        is UIStateBuilder -> {
+                            featureBuilder.uiStates.add(uiStateBuilder.build())
+                            currentBuilder = null
+                        }
+                        is UIActionBuilder -> {
+                            featureBuilder.uiActions.add(uiActionBuilder.build())
+                            currentBuilder = null
+                        }
+                        is DataSourceBuilder -> {
+                            featureBuilder.dataSources.addAll(dataSourceBuilder.build())
+                            currentBuilder = null
+                        }
+                    }
                 }
-                trimmedLine.startsWith("featureName =") -> {
-                    featureBuilder.featureName = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
+                currentBuilder is DomainModelBuilder -> {
+                    if (trimmedLine.contains("property")) {
+                        val parts = trimmedLine.substringAfter("property").trim().split(":")
+                        val name = parts[0].trim().removeSurrounding("\"")
+                        val type = parts[1].trim().removeSurrounding("\"")
+                        domainModelBuilder.property(name, type)
+                    } else if (trimmedLine.contains("name")) {
+                        domainModelBuilder.name = trimmedLine.substringAfter("name").trim().removeSurrounding("\"")
+                    }
                 }
-                trimmedLine.startsWith("domainModel {") -> {
-                    currentBlock = "domainModel"
-                    currentModel = DomainModelBuilder()
+                currentBuilder is UIStateBuilder -> {
+                    if (trimmedLine.contains("name")) {
+                        uiStateBuilder.name = trimmedLine.substringAfter("name").trim().removeSurrounding("\"")
+                    } else if (trimmedLine.contains("property")) {
+                        val parts = trimmedLine.substringAfter("property").trim().split(":")
+                        val name = parts[0].trim().removeSurrounding("\"")
+                        val type = parts[1].trim().removeSurrounding("\"")
+                        uiStateBuilder.property(name, type)
+                    }
                 }
-                trimmedLine.startsWith("name =") && currentBlock == "domainModel" -> {
-                    currentModel?.name = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
+                currentBuilder is UIActionBuilder -> {
+                    if (trimmedLine.contains("name")) {
+                        uiActionBuilder.name = trimmedLine.substringAfter("name").trim().removeSurrounding("\"")
+                    } else if (trimmedLine.contains("property")) {
+                        val parts = trimmedLine.substringAfter("property").trim().split(":")
+                        val name = parts[0].trim().removeSurrounding("\"")
+                        val type = parts[1].trim().removeSurrounding("\"")
+                        uiActionBuilder.property(name, type)
+                    }
                 }
-                trimmedLine.startsWith("property(") && currentBlock == "domainModel" -> {
-                    val propertyParts = trimmedLine.substringAfter("property(").substringBefore(")").split(",")
-                    val name = propertyParts[0].trim().removeSurrounding("\"")
-                    val type = propertyParts[1].trim().removeSurrounding("\"")
-                    currentModel?.property(name, type)
-                }
-                trimmedLine.startsWith("}") && currentBlock == "domainModel" -> {
-                    currentModel?.let { featureBuilder.domainModels.add(it.build()) }
-                    currentBlock = null
-                    currentModel = null
-                }
-                trimmedLine.startsWith("apiEndpoint {") -> {
-                    currentBlock = "apiEndpoint"
-                    currentEndpoint = ApiEndpointBuilder()
-                }
-                trimmedLine.startsWith("name =") && currentBlock == "apiEndpoint" -> {
-                    currentEndpoint?.name = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("path =") && currentBlock == "apiEndpoint" -> {
-                    currentEndpoint?.path = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("method =") && currentBlock == "apiEndpoint" -> {
-                    currentEndpoint?.method = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("responseModel =") && currentBlock == "apiEndpoint" -> {
-                    currentEndpoint?.responseModel = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("}") && currentBlock == "apiEndpoint" -> {
-                    currentEndpoint?.let { featureBuilder.apiEndpoints.add(it.build()) }
-                    currentBlock = null
-                    currentEndpoint = null
-                }
-                trimmedLine.startsWith("uiState {") -> {
-                    currentBlock = "uiState"
-                    currentState = UIStateBuilder()
-                }
-                trimmedLine.startsWith("name =") && currentBlock == "uiState" -> {
-                    currentState?.name = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("property(") && currentBlock == "uiState" -> {
-                    val propertyParts = trimmedLine.substringAfter("property(").substringBefore(")").split(",")
-                    val name = propertyParts[0].trim().removeSurrounding("\"")
-                    val type = propertyParts[1].trim().removeSurrounding("\"")
-                    currentState?.property(name, type)
-                }
-                trimmedLine.startsWith("}") && currentBlock == "uiState" -> {
-                    currentState?.let { featureBuilder.uiStates.add(it.build()) }
-                    currentBlock = null
-                    currentState = null
-                }
-                trimmedLine.startsWith("uiAction {") -> {
-                    currentBlock = "uiAction"
-                    currentAction = UIActionBuilder()
-                }
-                trimmedLine.startsWith("name =") && currentBlock == "uiAction" -> {
-                    currentAction?.name = trimmedLine.substringAfter("=").trim().removeSurrounding("\"")
-                }
-                trimmedLine.startsWith("property(") && currentBlock == "uiAction" -> {
-                    val propertyParts = trimmedLine.substringAfter("property(").substringBefore(")").split(",")
-                    val name = propertyParts[0].trim().removeSurrounding("\"")
-                    val type = propertyParts[1].trim().removeSurrounding("\"")
-                    currentAction?.property(name, type)
-                }
-                trimmedLine.startsWith("}") && currentBlock == "uiAction" -> {
-                    currentAction?.let { featureBuilder.uiActions.add(it.build()) }
-                    currentBlock = null
-                    currentAction = null
+                currentBuilder is DataSourceBuilder -> {
+                    when {
+                        trimmedLine.startsWith("networkCall") -> {
+                            val parts = trimmedLine.substringAfter("networkCall").trim().split(",")
+                            val path = parts[0].trim().removeSurrounding("\"")
+                            val responseModel = parts[1].trim()
+                            val transformations = parts.drop(2).map { it.trim() }.toTypedArray()
+                            dataSourceBuilder.networkCall(path, responseModel, *transformations)
+                        }
+                        trimmedLine.startsWith("preference") -> {
+                            val parts = trimmedLine.substringAfter("preference").trim().split(",")
+                            val key = parts[0].trim().removeSurrounding("\"")
+                            val type = parts[1].trim()
+                            dataSourceBuilder.preference(key, type)
+                        }
+                        trimmedLine.startsWith("localDM") -> {
+                            val parts = trimmedLine.substringAfter("localDM").trim().split(",")
+                            val repository = parts[0].trim()
+                            val method = parts[1].trim()
+                            val responseModel = parts[2].trim()
+                            dataSourceBuilder.localDM(repository, method, responseModel)
+                        }
+                        trimmedLine.startsWith("localStorage") -> {
+                            val path = trimmedLine.substringAfter("localStorage").trim().removeSurrounding("\"")
+                            dataSourceBuilder.localStorage(path)
+                        }
+                    }
                 }
             }
         }
-        
-        return featureBuilder
+
+        return featureBuilder.build()
     }
 } 

@@ -1,42 +1,37 @@
- feature {
-     packageName = "profile"
-     featureName = "Profile"
+feature Profile
 
-     // Define domain models
-     domainModel {
-         name = "UserProfile"
-         property("id", "String")
-         property("name", "String")
-         property("email", "String")
-         property("avatarUrl", "String")
-     }
+domainModel {
+    name "UserProfile"
+    property "id": "String"
+    property "name": "String"
+    property "email": "String"
+    property "avatarUrl": "String"
+}
 
-     // Define API endpoints
-     apiEndpoint {
-         name = "getUserProfile"
-         path = "/api/user/profile"
-         method = "GET"
-         responseModel = "UserProfile"
-     }
+uiState {
+    name "ProfileState"
+    property "isLoading": "Boolean"
+    property "profile": "UserProfile?"
+    property "accounts": "List<Account>?"
+    property "notificationsEnabled": "Boolean"
+}
 
-     // Define UI state
-     uiState {
-         name = "ProfileState"
-         property("isLoading", "Boolean")
-         property("userProfile", "UserProfile?")
-         property("error", "String?")
-     }
+uiAction {
+    name "LoadProfile"
+}
 
-     // Define UI actions
-     uiAction {
-         name = "LoadProfile"
-     }
-     uiAction {
-         name = "ProfileLoaded"
-         property("profile", "UserProfile")
-     }
-     uiAction {
-         name = "ProfileLoadFailed"
-         property("error", "String")
-     }
- }
+uiAction {
+    name "ProfileLoaded"
+    property "profile": "UserProfile"
+}
+
+uiAction {
+    name "ProfileLoadFailed"
+    property "error": "String"
+}
+
+dataSources {
+    networkCall "/api/profile", "UserProfile"
+    localDM "AccountRepository", "getAccounts", "List<Account>"
+    preference "notifications_enabled", "Boolean"
+}
