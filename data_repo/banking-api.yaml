@@ -1,0 +1,590 @@
+openapi: 3.0.0
+info:
+  title: Banking API
+  description: |
+    Comprehensive banking API with detailed models for customers, accounts, cards, and other banking products.
+    This API provides a complete set of endpoints for managing banking operations and customer data.
+  version: 1.0.0
+  contact:
+    name: Banking API Support
+    email: support@bankingapi.com
+
+servers:
+  - url: https://api.banking.com/v1
+    description: Production server
+  - url: https://sandbox-api.banking.com/v1
+    description: Sandbox server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Customer:
+      type: object
+      required:
+        - id
+        - firstName
+        - lastName
+        - email
+        - customerType
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the customer
+        customerType:
+          type: string
+          enum: [PERSONAL, BUSINESS]
+          description: Type of customer
+        firstName:
+          type: string
+          description: Customer's first name
+        lastName:
+          type: string
+          description: Customer's last name
+        email:
+          type: string
+          format: email
+          description: Customer's email address
+        phone:
+          type: string
+          description: Customer's phone number
+        dateOfBirth:
+          type: string
+          format: date
+          description: Customer's date of birth
+        address:
+          $ref: '#/components/schemas/Address'
+        kycStatus:
+          type: string
+          enum: [PENDING, VERIFIED, REJECTED]
+          description: KYC verification status
+        riskProfile:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
+          description: Customer's risk profile
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, BLOCKED]
+          description: Customer account status
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    Address:
+      type: object
+      required:
+        - street
+        - city
+        - country
+        - postalCode
+      properties:
+        street:
+          type: string
+          description: Street address
+        city:
+          type: string
+          description: City name
+        state:
+          type: string
+          description: State or province
+        country:
+          type: string
+          description: Country code (ISO 3166-1 alpha-2)
+        postalCode:
+          type: string
+          description: Postal code
+
+    Account:
+      type: object
+      required:
+        - id
+        - customerId
+        - accountType
+        - currency
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the account
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer
+        accountType:
+          type: string
+          enum: [CHECKING, SAVINGS, INVESTMENT, FIXED_DEPOSIT]
+          description: Type of account
+        accountNumber:
+          type: string
+          description: Account number
+        currency:
+          type: string
+          description: Currency code (ISO 4217)
+        balance:
+          type: number
+          format: float
+          description: Current account balance
+        availableBalance:
+          type: number
+          format: float
+          description: Available balance for withdrawal
+        interestRate:
+          type: number
+          format: float
+          description: Annual interest rate
+        status:
+          type: string
+          enum: [ACTIVE, FROZEN, CLOSED]
+          description: Account status
+        openedDate:
+          type: string
+          format: date
+          description: Account opening date
+        lastActivityDate:
+          type: string
+          format: date-time
+          description: Last activity timestamp
+
+    Card:
+      type: object
+      required:
+        - id
+        - customerId
+        - accountId
+        - cardType
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the card
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer
+        accountId:
+          type: string
+          format: uuid
+          description: Reference to the linked account
+        cardType:
+          type: string
+          enum: [DEBIT, CREDIT, PREPAID]
+          description: Type of card
+        cardNumber:
+          type: string
+          description: Masked card number
+        expiryDate:
+          type: string
+          format: date
+          description: Card expiry date
+        cvv:
+          type: string
+          description: Card verification value
+        status:
+          type: string
+          enum: [ACTIVE, BLOCKED, EXPIRED]
+          description: Card status
+        dailyLimit:
+          type: number
+          format: float
+          description: Daily transaction limit
+        monthlyLimit:
+          type: number
+          format: float
+          description: Monthly transaction limit
+        creditLimit:
+          type: number
+          format: float
+          description: Credit limit (for credit cards)
+        issuedDate:
+          type: string
+          format: date
+          description: Card issuance date
+
+    Transaction:
+      type: object
+      required:
+        - id
+        - accountId
+        - amount
+        - currency
+        - type
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the transaction
+        accountId:
+          type: string
+          format: uuid
+          description: Reference to the account
+        type:
+          type: string
+          enum: [DEPOSIT, WITHDRAWAL, TRANSFER, PAYMENT]
+          description: Transaction type
+        amount:
+          type: number
+          format: float
+          description: Transaction amount
+        currency:
+          type: string
+          description: Currency code (ISO 4217)
+        description:
+          type: string
+          description: Transaction description
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED, REVERSED]
+          description: Transaction status
+        timestamp:
+          type: string
+          format: date-time
+          description: Transaction timestamp
+        referenceId:
+          type: string
+          description: External reference ID
+        metadata:
+          type: object
+          description: Additional transaction metadata
+
+    Loan:
+      type: object
+      required:
+        - id
+        - customerId
+        - type
+        - amount
+        - currency
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the loan
+        customerId:
+          type: string
+          format: uuid
+          description: Reference to the customer
+        type:
+          type: string
+          enum: [PERSONAL, MORTGAGE, BUSINESS, AUTO]
+          description: Type of loan
+        amount:
+          type: number
+          format: float
+          description: Loan amount
+        currency:
+          type: string
+          description: Currency code (ISO 4217)
+        interestRate:
+          type: number
+          format: float
+          description: Annual interest rate
+        term:
+          type: integer
+          description: Loan term in months
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, PAID, DEFAULTED]
+          description: Loan status
+        startDate:
+          type: string
+          format: date
+          description: Loan start date
+        endDate:
+          type: string
+          format: date
+          description: Expected loan end date
+        remainingBalance:
+          type: number
+          format: float
+          description: Remaining loan balance
+        paymentSchedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanPayment'
+
+    LoanPayment:
+      type: object
+      required:
+        - dueDate
+        - amount
+        - status
+      properties:
+        dueDate:
+          type: string
+          format: date
+          description: Payment due date
+        amount:
+          type: number
+          format: float
+          description: Payment amount
+        status:
+          type: string
+          enum: [PENDING, PAID, OVERDUE]
+          description: Payment status
+        paidDate:
+          type: string
+          format: date
+          description: Date when payment was made
+
+paths:
+  /customers:
+    get:
+      summary: List all customers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Customer'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+    post:
+      summary: Create a new customer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Customer'
+      responses:
+        '201':
+          description: Customer created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+
+  /customers/{customerId}:
+    get:
+      summary: Get customer details
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: customerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+
+  /accounts:
+    get:
+      summary: List all accounts
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: customerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /cards:
+    get:
+      summary: List all cards
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: customerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of cards
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Card'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /transactions:
+    get:
+      summary: List all transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: accountId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+
+  /loans:
+    get:
+      summary: List all loans
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: customerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, ACTIVE, PAID, DEFAULTED]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of loans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Loan'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer 
